@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#122030">
-<meta name="description" content="Luka's football legends game: draw a shirt number, do a real skill with a real ball, build your dream team.">
+<meta name="description" content="Luka's football legends game: pick a shirt number, do a real skill with a real ball, build your dream team.">
 <meta property="og:title" content="Dream XI Draw">
-<meta property="og:description" content="Luka invented a football game! Draw a shirt number, do a real skill, build your dream team of legends.">
+<meta property="og:description" content="Luka invented a football game! Pick a shirt number, do a real skill, build your dream team of legends.">
 <meta property="og:image" content="https://cathaledwardosullivan-glitch.github.io/dream-xi-draw/icon-512.png">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -414,16 +414,18 @@ const TIERADJ={easy:.12,medium:0,hard:-.12};
 const NAME_IDEAS=['Dream XI Draw','Skill or Steal','Flick & Pick','Legends Lucky Dip','Shirt Number Showdown','Rabona Draft'];
 const TACTICS=[
  {at:3,h:'Give them a low striker',p:'When your opponent misses a skill and you pick for them, go for a low-rated striker. Strikers are the best-rated players in the game: Messi, Maradona and Pelé are 99, Ronaldo 98. A 70 up front wastes their best spot.'},
- {at:6,h:'Fill the full line',p:'If their midfield is already full, give them a player who can only play midfield. He has to go in attack or defence, so they lose 2 points. It works for any line that’s full.'},
+ {at:6,h:'Fill the full line',p:'If their midfield is already full, give them a player who can only play midfield. He has to go in attack or defence, so they lose 5 points. It works for any line that’s full.'},
  {at:10,h:'Hide low players in defence',p:'Stuck with a low-rated player? Put him in defence. The best defender is only 89 (Sergio Ramos), so you’re not missing out on a 97 midfielder or a 99 striker.'}
 ];
 const LV={GK:0,DEF:1,MID:2,FWD:3};
+// Out-of-position penalties (made harsher after testing; Luka's first version was -2, -5, -10)
+const PEN={oneLine:-5,twoLines:-10,goal:-20};
 const LNAME={GK:'Keeper',DEF:'Defence',MID:'Midfield',FWD:'Attack'};
 const MAX_LOW=3;
 const FEEDBACK_URL='https://tally.so/r/aOQ0xB';
 const IS_APP=!!document.querySelector('link[rel=manifest]');
 const APP_URL=IS_APP?location.origin+location.pathname.replace(/index\.html$/,''):'https://cathaledwardosullivan-glitch.github.io/dream-xi-draw/';
-const SHARE_TEXT='Luka invented a football game! Draw a shirt number, do a real skill with a real ball, and build your dream team of legends. Play free:';
+const SHARE_TEXT='Luka invented a football game! Pick a shirt number, do a real skill with a real ball, and build your dream team of legends. Play free:';
 const isStandalone=()=>{try{return matchMedia('(display-mode: standalone)').matches||matchMedia('(display-mode: fullscreen)').matches||navigator.standalone===true;}catch(e){return false;}};
 const isIOS=()=>/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 let installPrompt=null;
@@ -460,7 +462,7 @@ const Snd={ctx:null,
 
 /* ---------- Rules helpers ---------- */
 const R=id=>(S.ratings[id]!=null?S.ratings[id]:PM[id].rating);
-function pen(id,line){const nat=PM[id].lines;if(nat.includes(line))return 0;if(line==='GK'||nat.includes('GK'))return -10;const d=Math.min(...nat.map(n=>Math.abs(LV[n]-LV[line])));return d===1?-2:-5;}
+function pen(id,line){const nat=PM[id].lines;if(nat.includes(line))return 0;if(line==='GK'||nat.includes('GK'))return PEN.goal;const d=Math.min(...nat.map(n=>Math.abs(LV[n]-LV[line])));return d===1?PEN.oneLine:PEN.twoLines;}
 const val=(id,line)=>R(id)+pen(id,line);
 const has=(t,id)=>t.slots.some(s=>s.pid===id);
 const empties=t=>t.slots.map((s,i)=>s.pid?null:i).filter(i=>i!==null);
@@ -542,7 +544,7 @@ function resolveDraw(n,swap){
   const wearers=PLAYERS.filter(p=>p.num===n).map(p=>p.id);
   if(swap){
     const cands=wearers.filter(id=>!has(t,id));
-    if(!cands.length){g.step={type:'swapDraw',blank:n};g.note=WORN.has(n)?`Everyone wearing #${n} is already in the team. Draw again.`:`Nobody wears #${n}. Draw again, it doesn't count.`;render();return;}
+    if(!cands.length){g.step={type:'swapDraw',blank:n};g.note=WORN.has(n)?`Everyone wearing #${n} is already in the team. Pick again.`:`Nobody wears #${n}. Pick again, it doesn't count.`;render();return;}
     g.note=null;g.step={type:'swapChoose',n,cands};render();return;
   }
   const cands=wearers.filter(id=>canAdd(t,id));
@@ -645,7 +647,7 @@ function maybeCpu(){
 
 /* ---------- Views ---------- */
 function teamBox(i){const g=G();const t=g.teams[i];const act=g.phase!=='result'&&actor()===i;
-  const sub=g.phase==='swap'?(swapDone(t)?'Swaps done':`${t.swap.need} swap${t.swap.need===1?'':'s'} to make · ${t.swap.draws} draw${t.swap.draws===1?'':'s'} left`):`${filled(t)}/11 · ${t.formation} · 72-or-less: ${lowCount(t)}/3`;
+  const sub=g.phase==='swap'?(swapDone(t)?'Swaps done':`${t.swap.need} swap${t.swap.need===1?'':'s'} to make · ${t.swap.draws} pick${t.swap.draws===1?'':'s'} left`):`${filled(t)}/11 · ${t.formation} · 72-or-less: ${lowCount(t)}/3`;
   return `<div class="team t${i} ${act?'active':''}"><div class="nm">${esc(t.club)}</div><div class="meta">${t.cpu?'Manager: ':''}${esc(t.manager)}</div><div class="meta">${sub}</div><div class="meta">Rating total <b style="color:var(--chalk)">${total(t)}</b></div></div>`;}
 
 function pitch(i,opts={}){
@@ -687,12 +689,12 @@ function panel(){
     case 'draw':
       return `${note}<div><div class="eyebrow">${esc(t.club)} · pick ${pickNo} of 11</div><h2>${who(i)}'s turn</h2></div>${cpuMe?'':passNote(i)}
       <div class="drawzone"><div class="ball" id="ball">?</div>${boxGrid()}</div>
-      ${cpuMe?thinking(`${esc(t.name)} is reaching into the box…`):'<div class="btnrow"><button class="btn" data-a="draw">Draw a number</button></div>'}`;
+      ${cpuMe?thinking(`${esc(t.name)} is reaching into the box…`):'<div class="btnrow"><button class="btn" data-a="draw">Pick a number</button></div>'}`;
     case 'drawing':
-      return `<div><div class="eyebrow">${st.swap?'Swap draw':esc(t.club)+' · pick '+pickNo+' of 11'}</div><h2>${who(i)} is drawing…</h2></div>
+      return `<div><div class="eyebrow">${st.swap?'Swap time':esc(t.club)+' · pick '+pickNo+' of 11'}</div><h2>${who(i)} is picking a number…</h2></div>
       <div class="drawzone"><div class="ball spin" id="ball">${st.shown}</div>${boxGrid(st.shown)}</div>`;
     case 'choose':
-      return `<div><div class="eyebrow">${esc(t.name)} drew number ${st.n}</div><h2>${cpuMe?(st.cpuPick?`${esc(t.name)} wants ${esc(PM[st.cpuPick].short)}`:`${esc(t.name)} is choosing…`):st.cands.length>1?'Choose your #'+st.n:'Your #'+st.n}</h2></div>
+      return `<div><div class="eyebrow">${esc(t.name)} picked number ${st.n}</div><h2>${cpuMe?(st.cpuPick?`${esc(t.name)} wants ${esc(PM[st.cpuPick].short)}`:`${esc(t.name)} is choosing…`):st.cands.length>1?'Choose your #'+st.n:'Your #'+st.n}</h2></div>
       ${cpuMe?'':`<p class="muted" style="margin:0">${st.cands.length>1?`${st.cands.length} legends wear #${st.n}.${hide?' Ratings are hidden, so trust your football brain!':''}`:'Tap him to go for him.'} Better players mean harder skills.</p>`}
       <div class="plist">${st.cands.map(id=>pcard(id,'choose',cpuMe,{hide:hide&&!(cpuMe&&st.cpuPick===id),picked:st.cpuPick===id})).join('')}</div>`;
     case 'skill':{
@@ -727,10 +729,10 @@ function panel(){
       <div class="timer"><i></i></div>
       <div class="btnrow"><button class="btn" data-a="recapok">${g.phase==='swap'&&swapDone(g.teams[o])?'Next':'Your turn'} →</button></div>`;}
     case 'swapDraw':
-      return `${note}<div><div class="eyebrow">Swap time · ${t.swap.draws} draw${t.swap.draws===1?'':'s'} left</div><h2>${who(i)}: make ${t.swap.need} swap${t.swap.need===1?'':'s'}</h2></div>${cpuMe?'':passNote(i)}
+      return `${note}<div><div class="eyebrow">Swap time · ${t.swap.draws} pick${t.swap.draws===1?'':'s'} left</div><h2>${who(i)}: make ${t.swap.need} swap${t.swap.need===1?'':'s'}</h2></div>${cpuMe?'':passNote(i)}
       <p class="muted" style="margin:0">${t.swap.draws>t.swap.need?'You can say no to one number, but you must make exactly two swaps.':'No more passing. You have to swap this time.'}</p>
       <div class="drawzone"><div class="ball" id="ball">${st.blank||'?'}</div>${boxGrid(st.blank)}</div>
-      ${cpuMe?thinking(`${esc(t.name)} is drawing…`):'<div class="btnrow"><button class="btn" data-a="draw">Draw a number</button></div>'}`;
+      ${cpuMe?thinking(`${esc(t.name)} is picking a number…`):'<div class="btnrow"><button class="btn" data-a="draw">Pick a number</button></div>'}`;
     case 'swapChoose':{
       const canSkip=t.swap.draws>t.swap.need;
       return `<div><div class="eyebrow">Swap time · number ${st.n}</div><h2>${cpuMe?esc(t.name)+' is thinking…':'Swap one in?'}</h2></div>
@@ -782,7 +784,7 @@ function homeView(){
   const cont=S.game&&S.game.phase!=='result';
   const nameBox=`<p class="muted" style="margin:0">Invented by Luka.</p>`;
   return `<div class="topbar"><span></span><div class="right">${soundBtn()}</div></div><div class="home"><div class="hero"><div style="display:grid;gap:16px"><div class="eyebrow">Luka’s fantasy football game</div><h1>${titleHTML(S.name)}</h1>
-  <p>Draw a shirt number, land a real skill with a real ball, and build the best team of legends. Miss it and your opponent picks for you.</p>${nameBox}</div>
+  <p>Pick a shirt number, land a real skill with a real ball, and build the best team of legends. Miss it and your opponent picks for you.</p>${nameBox}</div>
   <div class="shirtfan">${shirt('messi')}${shirt('pele')}${shirt('cronaldo')}</div></div>
   <div class="menu">${cont?'<button class="btn" data-a="continue">Continue game</button>':''}
   <button class="btn ${cont?'ghost':''}" data-a="new" data-v="cpu">Play a manager</button>
@@ -871,14 +873,14 @@ function rulesView(){
   <p class="muted" style="margin:0">Rules by Luka. You need a ball.</p>
   <ol>
   <li>Each player chooses a club name and a formation at the start. You keep the formation all game.</li>
-  <li>On your turn, draw a number from 1 to 25. Numbers go back in the box, so they can come up again.</li>
+  <li>On your turn, pick a number from 1 to 25 out of the box. Numbers go back in the box, so they can come up again.</li>
   <li>Choose any legend wearing that number. Both teams can have the same legend.</li>
-  <li>Draw a skill card and do the skill for real. You get three tries. Better players mean harder skills. Free pass means no skill needed.</li>
-  <li>Land it and he’s yours. Miss all three, or draw a number nobody wears, and your opponent picks any player for you.</li>
+  <li>You get a skill card. Do the skill for real. You get three tries. Better players mean harder skills. Free pass means no skill needed.</li>
+  <li>Land it and he’s yours. Miss all three, or pick a number nobody wears, and your opponent picks any player for you.</li>
   <li>No team can have more than three players rated 72 or less. It’s their starting rating that counts: a 78 keeper playing outfield on 68 doesn’t count.</li>
-  <li>Put him anywhere in your team. Out of position costs points: one line away −2 (like a midfielder in defence), two lines away −5 (like a striker at full-back), anyone in goal or a keeper outfield −10.</li>
+  <li>Put him anywhere in your team. Out of position costs points: one line away −5 (like a midfielder in defence), two lines away −10 (like a striker at full-back), anyone in goal who isn’t a keeper, or a keeper outfield, −20.</li>
   <li>If the only gap left is in goal, your opponent picks your keeper.</li>
-  <li>When both teams have 11, it’s swap time. Draw three numbers one at a time. You must make exactly two swaps, so you can say no to one number at most.</li>
+  <li>When both teams have 11, it’s swap time. Pick three numbers, one at a time. You must make exactly two swaps, so you can say no to one number at most.</li>
   <li>Add up the ratings. The highest total wins.</li>
   </ol>
   <h2 style="font-size:1.8rem;text-transform:uppercase;margin-top:10px">The skill cards</h2>
@@ -894,7 +896,7 @@ function footballSVG(){
 }
 const TUT=[
  {ball:true,h:'Grab a ball!',p:'You’ll need it. In this game you do real football skills.'},
- {h:'Draw a number',p:'Pick a football legend who wears that shirt number.',pic:()=>`<div class="ball" style="width:110px;height:110px;font-size:3.6rem">10</div>${shirt('messi')}${shirt('pele')}`},
+ {h:'Pick a number',p:'Then choose a football legend who wears that shirt number.',pic:()=>`<div class="ball" style="width:110px;height:110px;font-size:3.6rem">10</div>${shirt('messi')}${shirt('pele')}`},
  {h:'Do the skill',p:'You get three tries. Do it, and he joins your team.',pic:()=>`<div class="paper"><div class="t">Rainbow flick</div><div class="d">Flick the ball over your head.</div></div>`},
  {h:'Missed it?',p:'Then your opponent picks a player for you. Watch out, it might be a bad one!',pic:()=>`${shirt('weah')}${shirt('papin')}`},
  {h:'Pick his spot',p:'Put each player where he plays best. The wrong spot loses points.',pic:()=>formSVG('4-4-2',{big:true})},
