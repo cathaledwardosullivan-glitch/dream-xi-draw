@@ -147,6 +147,10 @@ label.lbl{font-size:.85rem;font-weight:600;color:var(--chalk-dim);display:grid;g
 
 /* Draw */
 .drawzone{display:flex;gap:22px;align-items:center;flex-wrap:wrap}
+.drawzone.tap{border-radius:18px;padding:10px;text-align:left;border:2px dashed transparent}
+.drawzone.tap:hover{border-color:var(--line)}
+.btn.bigpick{width:100%;min-height:72px;font-size:1.7rem;animation:nudge 1.6s ease-in-out infinite}
+@keyframes nudge{50%{transform:scale(1.03)}}
 .ball{width:150px;height:150px;border-radius:50%;display:grid;place-items:center;flex:none;background:radial-gradient(circle at 35% 30%,#fff 0,#e9ecef 45%,#b9c0c8 100%);color:#122030;font-family:var(--f-display);font-weight:900;font-size:5rem;box-shadow:0 10px 26px rgba(0,0,0,.45),inset -6px -8px 0 rgba(0,0,0,.08)}
 .ball.spin{animation:wob .18s infinite alternate}
 @keyframes wob{from{transform:rotate(-6deg) scale(.98)}to{transform:rotate(6deg) scale(1.02)}}
@@ -357,21 +361,26 @@ const WORN=new Set(PLAYERS.map(p=>p.num));
 const ANY={t:'Any skill',d:'Your choice. Pick any skill you like and land it.'};
 const FREE={t:'Free pass',d:'No skill needed. He’s yours!',free:true};
 const SKILLS={
- easy:[{t:'Keepy-uppies ×5',v:'gYPb9AqtE7o',d:'Five touches in a row without the ball hitting the ground.'},
-       {t:'Toe taps ×10',v:'VT8KF3_ssqU',d:'Tap the top of the ball, left foot then right, ten times.'},
+ easy:[{t:'Keepy-uppies ×{k}',count:'keepy',v:'gYPb9AqtE7o',d:'Keep the ball up for {k} touches without it hitting the ground.'},
+       {t:'Toe taps ×{k}',count:'toe',v:'VT8KF3_ssqU',d:'Tap the top of the ball, left foot then right, {k} times.'},
        {t:'Drag-back',v:'aWu1bo1BccM',d:'Roll the ball back under your sole and turn away with it.'},
        {t:'Inside hook',v:'e48Lpw_W6DI',d:'Hook the ball behind you with the inside of your foot and go the other way.'},ANY,FREE],
  medium:[{t:'Chest volley',v:'LtOMh1HLVCo',d:'Chest it down and volley it before it touches the ground.'},
        {t:'Double stepover',v:'sb3Zj0BZJ8s',d:'Two stepovers, then take the ball away.'},
        {t:'Cruyff turn',v:'_28dtWxJWn0',d:'Fake a kick, then drag the ball behind your standing leg and turn.'},
-       {t:'Keepy-uppies ×10',v:'gYPb9AqtE7o',d:'Ten touches in a row without the ball hitting the ground.'},
+       {t:'Keepy-uppies ×{k}',count:'keepy',v:'gYPb9AqtE7o',d:'Keep the ball up for {k} touches without it hitting the ground.'},
        {t:'Heel flick',v:'0Mq16DGm88I',d:'Flick the ball forward with your heel and run onto it.'},ANY,FREE],
  hard:[{t:'Rabona control',v:'dIBYkQZFD94',d:'Control the ball with a rabona: kick foot wraps behind your standing leg.'},
        {t:'Rainbow flick',v:'MKG2lm4a6-M',d:'Roll it up the back of your leg and flick it over your head.'},
        {t:'Around the world',v:'lHy5-QofzP0',d:'Flick the ball up and circle your foot around it before it drops.'},
        {t:'Elastico',v:'1_D_U-T8b_M',d:'Push the ball out with the outside of your foot, then snap it back inside.'},
-       {t:'Keepy-uppies ×20',v:'gYPb9AqtE7o',d:'Twenty touches in a row without the ball hitting the ground.'},FREE]
+       {t:'Keepy-uppies ×{k}',count:'keepy',v:'gYPb9AqtE7o',d:'Keep the ball up for {k} touches without it hitting the ground.'},FREE]
 };
+// Age groups: how many touches counting skills need, by skill level. The youngest group never gets hard cards.
+const AGES={young:'Up to 7',junior:'8 to 10',older:'11 and up'};
+const COUNTS={keepy:{young:{easy:2,medium:3,hard:4},junior:{easy:3,medium:5,hard:8},older:{easy:5,medium:10,hard:15}},
+              toe:{young:{easy:6},junior:{easy:10},older:{easy:16}}};
+function forAge(sk,tier,age){if(!sk.count)return sk;const c=COUNTS[sk.count][age]||COUNTS[sk.count].junior;const k=c[tier]||c.easy;return Object.assign({},sk,{t:sk.t.replace('{k}',k),d:sk.d.replace('{k}',k)});}
 const TIERNAME={easy:'Easy skill',medium:'Medium skill',hard:'Hard skill'};
 const vidURL=v=>'https://www.youtube.com/watch?v='+v;
 // Curated tutorial videos. In the app they play inside the game; in the Claude preview (which blocks video players) they open YouTube.
@@ -439,7 +448,7 @@ addEventListener('appinstalled',()=>{installPrompt=null;if(S.screen==='home')ren
 /* ---------- State ---------- */
 const KEY='lukaLegends.v2';
 let S={v:2,screen:'home',name:'Dream XI Draw',renaming:false,ratings:{},sound:true,seenTut:false,played:0,history:[],
-  setup:{mode:'cpu',names:['Luka','Dad'],clubs:['',''],forms:['4-3-3','4-4-2'],mgr:'klopp',hide:true},
+  setup:{mode:'cpu',names:['Luka','Dad'],clubs:['',''],forms:['4-3-3','4-4-2'],ages:['junior','junior'],mgr:'klopp',hide:true},
   game:null,ui:{filter:'ALL',sort:'low',view:null,justPlaced:null,tut:null}};
 let cpuTimer=null, drawTimer=null, recapTimer=null;
 function save(){try{localStorage.setItem(KEY,JSON.stringify({name:S.name,ratings:S.ratings,sound:S.sound,seenTut:S.seenTut,played:S.played,history:S.history,setup:S.setup,game:S.game}))}catch(e){}}
@@ -447,26 +456,22 @@ function load(){try{const d=JSON.parse(localStorage.getItem(KEY)||'null');if(d){
   else{const old=JSON.parse(localStorage.getItem('lukaLegends.v1')||'null');}}catch(e){}}
 
 /* ---------- Sound (synthesised, no files) ---------- */
-const Snd={ctx:null,out:null,nbuf:null,
-  // Everything goes through a compressor, so quiet sounds (like the crowd) are loud enough on tablet speakers.
-  c(){if(!S.sound)return null;try{if(!this.ctx){const c=new (window.AudioContext||window.webkitAudioContext)();const k=c.createDynamicsCompressor();k.threshold.value=-20;k.knee.value=10;k.ratio.value=4;k.attack.value=.003;k.release.value=.25;const g=c.createGain();g.gain.value=1.1;k.connect(g);g.connect(c.destination);this.ctx=c;this.out=k;}if(this.ctx.state!=='running')this.ctx.resume();}catch(e){return null;}return this.ctx;},
-  unlock(){const c=this.c();if(!c)return;try{const b=c.createBuffer(1,1,22050);const s=c.createBufferSource();s.buffer=b;s.connect(c.destination);s.start(0);}catch(e){}},
-  noiseBuf(){if(!this.nbuf){const c=this.ctx,n=Math.floor(c.sampleRate*3),b=c.createBuffer(1,n,c.sampleRate),d=b.getChannelData(0);let last=0;for(let i=0;i<n;i++){const w=Math.random()*2-1;last=(last+.02*w)/1.02;d[i]=w*.45+last*3.2;}this.nbuf=b;}return this.nbuf;},
-  tone(f,dur,type='sine',vol=.15,when=0,slide=null){const c=this.c();if(!c)return;const t=c.currentTime+when;const o=c.createOscillator(),g=c.createGain();o.type=type;o.frequency.setValueAtTime(f,t);if(slide)o.frequency.exponentialRampToValueAtTime(slide,t+dur);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+.012);g.gain.exponentialRampToValueAtTime(.0001,t+dur);o.connect(g);g.connect(this.out);o.start(t);o.stop(t+dur+.05);},
-  noise(dur,vol,when=0,freq=1000,q=.6,attack=.3,wobble=0){const c=this.c();if(!c)return;const t=c.currentTime+when;const s=c.createBufferSource();s.buffer=this.noiseBuf();s.loop=true;const f=c.createBiquadFilter();f.type='bandpass';f.frequency.value=freq;f.Q.value=q;const g=c.createGain();g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+attack);g.gain.setValueAtTime(vol,t+Math.max(attack,dur*.55));g.gain.exponentialRampToValueAtTime(.0001,t+dur);s.connect(f);f.connect(g);let last=g;
-    if(wobble){const tr=c.createGain();tr.gain.value=.75;const l=c.createOscillator(),lg=c.createGain();l.frequency.value=wobble;lg.gain.value=.25;l.connect(lg);lg.connect(tr.gain);g.connect(tr);last=tr;l.start(t);l.stop(t+dur+.05);}
-    last.connect(this.out);s.start(t);s.stop(t+dur+.05);},
-  whistle(long){const c=this.c();if(!c)return;const pip=(w,d)=>{const t=c.currentTime+w;const o=c.createOscillator(),l=c.createOscillator(),lg=c.createGain(),g=c.createGain();o.frequency.value=2700;l.frequency.value=38;lg.gain.value=180;l.connect(lg);lg.connect(o.frequency);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.09,t+.02);g.gain.setValueAtTime(.09,t+d-.04);g.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(g);g.connect(this.out);o.start(t);l.start(t);o.stop(t+d+.05);l.stop(t+d+.05);};
+const Snd={ctx:null,
+  unlock(){this.c();},
+  c(){if(!S.sound)return null;try{if(!this.ctx)this.ctx=new (window.AudioContext||window.webkitAudioContext)();if(this.ctx.state==='suspended')this.ctx.resume();}catch(e){return null;}return this.ctx;},
+  tone(f,dur,type='sine',vol=.15,when=0,slide=null){const c=this.c();if(!c)return;const t=c.currentTime+when;const o=c.createOscillator(),g=c.createGain();o.type=type;o.frequency.setValueAtTime(f,t);if(slide)o.frequency.exponentialRampToValueAtTime(slide,t+dur);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+.012);g.gain.exponentialRampToValueAtTime(.0001,t+dur);o.connect(g);g.connect(c.destination);o.start(t);o.stop(t+dur+.05);},
+  noise(dur,vol,when=0,freq=1000,q=.6,attack=.3){const c=this.c();if(!c)return;const t=c.currentTime+when;const n=Math.floor(c.sampleRate*dur);const b=c.createBuffer(1,n,c.sampleRate);const d=b.getChannelData(0);for(let i=0;i<n;i++)d[i]=Math.random()*2-1;const s=c.createBufferSource();s.buffer=b;const f=c.createBiquadFilter();f.type='bandpass';f.frequency.value=freq;f.Q.value=q;const g=c.createGain();g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+attack);g.gain.exponentialRampToValueAtTime(.0001,t+dur);s.connect(f);f.connect(g);g.connect(c.destination);s.start(t);s.stop(t+dur+.05);},
+  whistle(long){const c=this.c();if(!c)return;const pip=(w,d)=>{const t=c.currentTime+w;const o=c.createOscillator(),l=c.createOscillator(),lg=c.createGain(),g=c.createGain();o.frequency.value=2700;l.frequency.value=38;lg.gain.value=180;l.connect(lg);lg.connect(o.frequency);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.09,t+.02);g.gain.setValueAtTime(.09,t+d-.04);g.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(g);g.connect(c.destination);o.start(t);l.start(t);o.stop(t+d+.05);l.stop(t+d+.05);};
     if(long){pip(0,.25);pip(.35,.25);pip(.7,.9);}else{pip(0,.18);pip(.25,.5);}},
-  tick(){this.tone(800+Math.random()*500,.035,'square',.05);},
-  reveal(){this.tone(660,.12,'triangle',.25);this.tone(990,.3,'triangle',.25,.1);},
-  card(){this.noise(.16,.6,0,2800,1,.01);},
-  cheer(){this.noise(2.4,1,0,650,.45,.35,7);this.noise(2,.6,.08,1500,.7,.3,9.5);this.noise(1.6,.35,.15,2600,1,.25,11);},
-  success(){[523,659,784,1047].forEach((f,i)=>this.tone(f,.22,'triangle',.22,i*.08));this.cheer();},
-  miss(){this.tone(330,.3,'sawtooth',.1,0,180);},
-  aww(){this.noise(1.5,.8,0,420,.6,.2,5);this.tone(392,.7,'triangle',.18,0,240);},
-  thud(){this.tone(150,.18,'sine',.45,0,55);this.noise(.1,.35,0,400,1,.005);},
-  pick(){this.tone(520,.08,'triangle',.16);}
+  tick(){this.tone(800+Math.random()*500,.035,'square',.035);},
+  reveal(){this.tone(660,.12,'triangle',.2);this.tone(990,.3,'triangle',.2,.1);},
+  card(){this.noise(.14,.18,0,2800,1,.01);},
+  cheer(){this.noise(1.8,.22,0,900,.4,.35);this.noise(1.4,.12,.1,2200,.8,.3);},
+  success(){[523,659,784,1047].forEach((f,i)=>this.tone(f,.2,'triangle',.16,i*.08));this.cheer();},
+  miss(){this.tone(330,.3,'sawtooth',.07,0,180);},
+  aww(){this.noise(1.1,.14,0,450,.7,.2);this.tone(392,.6,'triangle',.1,0,250);},
+  thud(){this.tone(150,.18,'sine',.35,0,55);this.noise(.08,.1,0,400,1,.005);},
+  pick(){this.tone(520,.08,'triangle',.12);}
 };
 ['pointerdown','touchend','keydown'].forEach(ev=>addEventListener(ev,()=>Snd.unlock(),{once:true,passive:true}));
 
@@ -527,7 +532,7 @@ function startGame(){
   const mk=(i)=>{
     if(cpu&&i===1)return{name:m.short,club:m.club,manager:m.name,formation:m.form,cpu:true};
     const nm=(su.names[i]||'Player '+(i+1)).trim();const club=(su.clubs[i]||'').trim()||nm+' FC';
-    return{name:nm,club,manager:nm,formation:su.forms[i],cpu:false};
+    return{name:nm,club,manager:nm,formation:su.forms[i],cpu:false,age:(su.ages&&su.ages[i])||'junior'};
   };
   S.game={v:2,id:Date.now(),mgr:cpu?m.id:null,mode:su.mode,diff:cpu?m.diff:'normal',hide:su.hide,phase:'draft',turn:0,
     teams:[0,1].map(i=>{const t=mk(i);t.slots=makeSlots(t.formation);t.swap={draws:3,need:2};return t;}),
@@ -563,7 +568,7 @@ function resolveDraw(n,swap){
     g.step={type:'oppPick',n,reason};g.note=null;render();return;}
   g.step={type:'choose',n,cands};g.note=null;render();
 }
-function choose(id){const g=G();const tier=tierOf(id);Snd.card();g.step={type:'skill',n:g.step.n,pid:id,tier,skill:drawSkill(tier),misses:0};render();}
+function choose(id){const g=G();const t=g.teams[g.turn];const age=t.age||'junior';let tier=tierOf(id);if(age==='young'&&tier==='hard')tier='medium';Snd.card();g.step={type:'skill',n:g.step.n,pid:id,tier,skill:forAge(drawSkill(tier),tier,age),misses:0};render();}
 function skillHit(){const g=G();const st=g.step;Snd.success();placeStep(st.pid,st.skill.free?`Free pass! ${PM[st.pid].short} signs for ${g.teams[g.turn].club}.`:`${g.teams[g.turn].name} landed the ${st.skill.t}!`);}
 function skillMiss(){const g=G();const st=g.step;st.misses++;if(st.misses>=3){Snd.aww();g.step={type:'oppPick',reason:'missed',skill:st.skill.t,wanted:st.pid};}else Snd.miss();render();}
 function placeStep(id,note,gift){const g=G();g.step={type:'place',pid:id,gift:!!gift};g.note=note||null;S.ui.view=null;render();}
@@ -677,9 +682,12 @@ function pitch(i,opts={}){
   return `<div class="pitch" aria-label="${esc(t.club)} team"><div class="box18 top"></div><div class="box18"></div>${html}</div>`;
 }
 
-function boxGrid(hit){let s='';for(let n=1;n<=25;n++)s+=`<span class="${WORN.has(n)?'':'none'} ${n===hit?'hit':''}">${n}</span>`;return `<div class="box" aria-hidden="true">${s}</div>`;}
+function boxGrid(hit){let s='';for(let n=1;n<=25;n++)s+=`<span class="${WORN.has(n)?'':'none'} ${n===hit?'hit':''}">${n}</span>`;return `<span class="box" aria-hidden="true">${s}</span>`;}
 function who(i){return `<span class="who${i}">${esc(G().teams[i].name)}</span>`;}
 function passNote(i){const g=G();if(g.mode!=='2p')return '';return `<div class="pass">Pass the tablet to <b>${esc(g.teams[i].name)}</b></div>`;}
+const pickZone=(shown,hit)=>`<button class="btn bigpick" data-a="draw">Tap here to pick a number</button>
+      <button class="drawzone tap" data-a="draw" aria-label="Pick a number"><span class="ball" id="ball">${shown}</span>${boxGrid(hit)}</button>
+      <p class="muted" style="margin:0">The number comes out of the box at random. Grey numbers are ones nobody wears.</p>`;
 const thinking=txt=>`<div class="cpuline"><span class="dots"><i></i><i></i><i></i></span>${txt}</div>`;
 
 function pickerGrid(target,onlyGK){
@@ -698,8 +706,7 @@ function panel(){
   switch(st.type){
     case 'draw':
       return `${note}<div><div class="eyebrow">${esc(t.club)} · pick ${pickNo} of 11</div><h2>${who(i)}'s turn</h2></div>${cpuMe?'':passNote(i)}
-      <div class="drawzone"><div class="ball" id="ball">?</div>${boxGrid()}</div>
-      ${cpuMe?thinking(`${esc(t.name)} is reaching into the box…`):'<div class="btnrow"><button class="btn" data-a="draw">Pick a number</button></div>'}`;
+      ${cpuMe?`<div class="drawzone"><div class="ball" id="ball">?</div>${boxGrid()}</div>${thinking(`${esc(t.name)} is reaching into the box…`)}`:pickZone('?')}`;
     case 'drawing':
       return `<div><div class="eyebrow">${st.swap?'Swap time':esc(t.club)+' · pick '+pickNo+' of 11'}</div><h2>${who(i)} is picking a number…</h2></div>
       <div class="drawzone"><div class="ball spin" id="ball">${st.shown}</div>${boxGrid(st.shown)}</div>`;
@@ -741,8 +748,7 @@ function panel(){
     case 'swapDraw':
       return `${note}<div><div class="eyebrow">Swap time · ${t.swap.draws} pick${t.swap.draws===1?'':'s'} left</div><h2>${who(i)}: make ${t.swap.need} swap${t.swap.need===1?'':'s'}</h2></div>${cpuMe?'':passNote(i)}
       <p class="muted" style="margin:0">${t.swap.draws>t.swap.need?'You can say no to one number, but you must make exactly two swaps.':'No more passing. You have to swap this time.'}</p>
-      <div class="drawzone"><div class="ball" id="ball">${st.blank||'?'}</div>${boxGrid(st.blank)}</div>
-      ${cpuMe?thinking(`${esc(t.name)} is picking a number…`):'<div class="btnrow"><button class="btn" data-a="draw">Pick a number</button></div>'}`;
+      ${cpuMe?`<div class="drawzone"><div class="ball" id="ball">${st.blank||'?'}</div>${boxGrid(st.blank)}</div>${thinking(`${esc(t.name)} is picking a number…`)}`:pickZone(st.blank||'?',st.blank)}`;
     case 'swapChoose':{
       const canSkip=t.swap.draws>t.swap.need;
       return `<div><div class="eyebrow">Swap time · number ${st.n}</div><h2>${cpuMe?esc(t.name)+' is thinking…':'Swap one in?'}</h2></div>
@@ -849,6 +855,9 @@ function setupView(){
   const playerCard=k=>`<div class="card"><div class="eyebrow">Player ${k+1}</div>
     <label class="lbl">Your name<input type="text" id="n${k}" value="${esc(su.names[k])}" maxlength="16"></label>
     <label class="lbl">Your club<input type="text" id="c${k}" value="${esc(su.clubs[k])}" maxlength="22" placeholder="${esc((su.names[k]||'My')+' FC')}"></label>
+    <div class="eyebrow">Your age</div>
+    <div class="chips">${Object.entries(AGES).map(([a,l])=>`<button class="chip ${((su.ages||[])[k]||'junior')===a?'on':''}" data-a="age" data-k="${k}" data-v="${a}">${l}</button>`).join('')}</div>
+    <p class="muted" style="margin:0">Younger players get fewer keepy-uppies and easier skills.</p>
     <div class="eyebrow">Formation</div>
     <div class="chips">${Object.keys(FORMATIONS).map(f=>`<button class="chip ${su.forms[k]===f?'on':''}" data-a="form" data-k="${k}" data-v="${f}">${f}</button>`).join('')}</div>${formSVG(su.forms[k])}<p class="muted" style="margin:0">You keep this formation for the whole game.</p></div>`;
   const mgrCard=`<div class="card"><div class="eyebrow">Choose your opponent</div><h2>Pick a manager</h2>
@@ -877,7 +886,7 @@ function ratingsView(){
 }
 
 function rulesView(){
-  const list=t=>`<ul>${SKILLS[t].map(s=>`<li>${esc(s.t)}${watchLink(s,'Video')}</li>`).join('')}</ul>`;
+  const list=t=>`<ul>${SKILLS[t].map(s=>`<li>${esc(s.t.replace(' ×{k}',''))}${watchLink(s,'Video')}</li>`).join('')}</ul>`;
   return `<div class="topbar"><button class="link" data-a="home">← Home</button></div><div class="rules">
   <h1 style="font-size:clamp(2.4rem,6vw,3.6rem);text-transform:uppercase">All the rules</h1>
   <p class="muted" style="margin:0">Rules by Luka. You need a ball.</p>
@@ -1043,6 +1052,7 @@ document.addEventListener('click',e=>{
     case 'rename':S.renaming=true;render();break;
     case 'form':S.setup.forms[+el.dataset.k]=v;render();break;
     case 'mgr':S.setup.mgr=v;render();break;
+    case 'age':S.setup.ages=S.setup.ages||['junior','junior'];S.setup.ages[+el.dataset.k]=v;render();break;
     case 'hide':S.setup.hide=!S.setup.hide;render();break;
     case 'start':startGame();break;
     case 'again':S.screen='setup';render();break;
