@@ -451,8 +451,8 @@ let S={v:2,screen:'home',name:'Dream XI Draw',renaming:false,ratings:{},sound:tr
   setup:{mode:'cpu',names:['Luka','Dad'],clubs:['',''],forms:['4-3-3','4-4-2'],ages:['junior','junior'],mgr:'klopp',hide:true},
   game:null,ui:{filter:'ALL',sort:'low',view:null,justPlaced:null,tut:null}};
 let cpuTimer=null, drawTimer=null, recapTimer=null;
-function save(){try{localStorage.setItem(KEY,JSON.stringify({name:S.name,ratings:S.ratings,sound:S.sound,seenTut:S.seenTut,played:S.played,history:S.history,setup:S.setup,game:S.game}))}catch(e){}}
-function load(){try{const d=JSON.parse(localStorage.getItem(KEY)||'null');if(d){S.name='Dream XI Draw';S.ratings={};S.sound=d.sound!==false;S.seenTut=!!d.seenTut;S.played=d.played||0;S.history=d.history||[];if(d.setup)S.setup=Object.assign(S.setup,d.setup);S.game=d.game||null;}
+function save(){try{localStorage.setItem(KEY,JSON.stringify({name:S.name,ratings:S.ratings,sound:S.sound,seenTut:S.seenTut,played:S.played,history:S.history,setup:S.setup,game:S.game,remote:S.remote||{}}))}catch(e){}}
+function load(){try{const d=JSON.parse(localStorage.getItem(KEY)||'null');if(d){S.name='Dream XI Draw';S.ratings={};S.sound=d.sound!==false;S.seenTut=!!d.seenTut;S.played=d.played||0;S.history=d.history||[];if(d.setup)S.setup=Object.assign(S.setup,d.setup);S.game=d.game||null;S.remote=d.remote||{};if(S.game&&S.game.mode==='remote'&&S.remote[S.game.id])S.game=S.remote[S.game.id];}
   else{const old=JSON.parse(localStorage.getItem('lukaLegends.v1')||'null');}}catch(e){}}
 
 /* ---------- Sound (synthesised, no files) ---------- */
@@ -479,14 +479,14 @@ const Snd={ctx:null,
 const R=id=>(S.ratings[id]!=null?S.ratings[id]:PM[id].rating);
 function pen(id,line){const nat=PM[id].lines;if(nat.includes(line))return 0;if(line==='GK'||nat.includes('GK'))return PEN.goal;const d=Math.min(...nat.map(n=>Math.abs(LV[n]-LV[line])));return d===1?PEN.oneLine:PEN.twoLines;}
 const val=(id,line)=>R(id)+pen(id,line);
-const has=(t,id)=>t.slots.some(s=>s.pid===id);
+const has=(t,id)=>t.slots.some(s=>s.pid===id)||(t.pending||[]).includes(id);
 const empties=t=>t.slots.map((s,i)=>s.pid?null:i).filter(i=>i!==null);
 const filled=t=>t.slots.filter(s=>s.pid).length;
 const total=t=>t.slots.reduce((a,s)=>a+(s.pid?val(s.pid,s.line):0),0);
 const bestFit=(t,id)=>Math.max(...empties(t).map(i=>val(id,t.slots[i].line)));
 const LOW_MAX=72; // Luka: players rated 72 or less (starting rating, before any out-of-position penalty)
 const isLow=id=>R(id)<=LOW_MAX;
-const lowCount=t=>t.slots.filter(s=>s.pid&&isLow(s.pid)).length;
+const lowCount=t=>t.slots.filter(s=>s.pid&&isLow(s.pid)).length+(t.pending||[]).filter(isLow).length;
 const canAdd=(t,id)=>!has(t,id)&&(!isLow(id)||lowCount(t)<MAX_LOW);
 const canSwapIn=(t,id,i)=>!isLow(id)||isLow(t.slots[i].pid)||lowCount(t)<MAX_LOW;
 function makeSlots(f){const out=[{line:'GK',label:'GK',row:0,pid:null}];FORMATIONS[f].forEach(([line,labels],r)=>labels.split(' ').forEach(l=>out.push({line,label:l,row:r+1,pid:null})));return out;}
@@ -495,7 +495,7 @@ function shuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor
 const G=()=>S.game;
 const other=t=>1-t;
 function newStepFor(team){const e=empties(team);if(e.length===1&&team.slots[e[0]].line==='GK')return{type:'gkForced'};return{type:'draw'};}
-function actor(){const g=G();if(!g||g.phase==='result')return null;const st=g.step.type;if(st==='drawing')return null;if(st==='oppPick'||st==='gkForced'||st==='recap')return other(g.turn);return g.turn;}
+function actor(){const g=G();if(!g||g.phase==='result')return null;const st=g.step.type;if(st==='drawing'||st==='send'||st==='join'||st==='whoami')return null;if(st==='oppPick'||st==='gkForced'||st==='recap')return other(g.turn);return g.turn;}
 const isCpu=i=>G().teams[i].cpu;
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const hidden=()=>G()&&G().hide;
@@ -565,19 +565,21 @@ function resolveDraw(n,swap){
   const cands=wearers.filter(id=>canAdd(t,id));
   if(!cands.length){
     const reason=!WORN.has(n)?'none':wearers.every(id=>has(t,id))?'taken':'cap';
+    if(g.mode==='remote'){g.tasks.push({type:'gift',for:g.turn,reason,n});rLog(`${t.name} picked #${n}, but ${reason==='none'?'nobody wears it':'there was nobody left to sign'}. ${g.teams[other(g.turn)].name} picks a player for them.`);remoteNext();return;}
     g.step={type:'oppPick',n,reason};g.note=null;render();return;}
   g.step={type:'choose',n,cands};g.note=null;render();
 }
 function choose(id){const g=G();const t=g.teams[g.turn];const age=t.age||'junior';let tier=tierOf(id);if(age==='young'&&tier==='hard')tier='medium';Snd.card();g.step={type:'skill',n:g.step.n,pid:id,tier,skill:forAge(drawSkill(tier),tier,age),misses:0};render();}
 function skillHit(){const g=G();const st=g.step;Snd.success();placeStep(st.pid,st.skill.free?`Free pass! ${PM[st.pid].short} signs for ${g.teams[g.turn].club}.`:`${g.teams[g.turn].name} landed the ${st.skill.t}!`);}
-function skillMiss(){const g=G();const st=g.step;st.misses++;if(st.misses>=3){Snd.aww();g.step={type:'oppPick',reason:'missed',skill:st.skill.t,wanted:st.pid};}else Snd.miss();render();}
+function skillMiss(){const g=G();const st=g.step;st.misses++;if(st.misses>=3&&g.mode==='remote'){Snd.aww();g.tasks.push({type:'gift',for:g.turn,reason:'missed',skill:st.skill.t});rLog(`${g.teams[g.turn].name} missed the ${st.skill.t}, so ${g.teams[other(g.turn)].name} picks a player for them.`);remoteNext();return;}if(st.misses>=3){Snd.aww();g.step={type:'oppPick',reason:'missed',skill:st.skill.t,wanted:st.pid};}else Snd.miss();render();}
 function placeStep(id,note,gift){const g=G();g.step={type:'place',pid:id,gift:!!gift};g.note=note||null;S.ui.view=null;render();}
-function giftPick(id){const g=G();const giver=g.teams[other(g.turn)].name;Snd.pick();placeStep(id,`${giver} gave ${g.teams[g.turn].name} ${PM[id].short} (${R(id)}).`,true);}
+function giftPick(id){const g=G();if(g.mode==='remote'&&g.step.task){const o=g.turn,T=g.teams[o];T.pending.push(id);const k=g.tasks.findIndex(x=>x.for===o);if(k>=0)g.tasks.splice(k,1);Snd.pick();rLog(`${g.teams[g.me].name} gave ${T.name} ${PM[id].short} (${R(id)}).`);remoteNext();return;}const giver=g.teams[other(g.turn)].name;Snd.pick();placeStep(id,`${giver} gave ${g.teams[g.turn].name} ${PM[id].short} (${R(id)}).`,true);}
 function place(i){
   const g=G();const t=g.teams[g.turn];const id=g.step.pid;if(t.slots[i].pid)return;
   t.slots[i].pid=id;const p=pen(id,t.slots[i].line);Snd.thud();
   const text=`${PM[id].short} plays ${t.slots[i].label} for ${t.club}${p?` (${p}, out of position)`:''}.`;
   S.ui.justPlaced={team:g.turn,i};
+  if(g.mode==='remote'){if(g.step.pending)t.pending.shift();rLog(text);g.note=null;remoteNext();return;}
   if(t.cpu&&!isCpu(other(g.turn))){g.step={type:'recap',pid:id,slot:i,text,kind:'sign'};g.note=null;render();return;}
   g.note=text;endTurn();
 }
@@ -599,6 +601,7 @@ function swapBack(){const g=G();g.step={type:'swapChoose',n:g.step.n,cands:g.ste
 function swapSkip(){
   const g=G();const t=g.teams[g.turn];if(t.swap.draws<=t.swap.need)return;t.swap.draws--;
   const text=`${t.name} kept the team and passed on #${g.step.n}.`;
+  if(g.mode==='remote'){rLog(text);g.note=text;if(swapDone(t))remoteNext();else{g.step={type:'swapDraw'};render();}return;}
   if(t.cpu&&!isCpu(other(g.turn))){g.step={type:'recap',text,kind:'pass'};render();return;}
   g.note=text;swapNext();
 }
@@ -607,8 +610,103 @@ function swapAt(i){
   if(!canSwapIn(t,id,i))return;
   t.slots[i].pid=id;t.swap.draws--;t.swap.need--;Snd.thud();
   const text=`${PM[out].short} off, ${PM[id].short} on at ${t.slots[i].label}.`;S.ui.justPlaced={team:g.turn,i};
+  if(g.mode==='remote'){rLog(`${t.name}: ${text}`);g.note=text;if(swapDone(t))remoteNext();else{g.step={type:'swapDraw'};render();}return;}
   if(t.cpu&&!isCpu(other(g.turn))){g.step={type:'recap',pid:id,out,slot:i,text,kind:'swap'};render();return;}
   g.note=text;swapNext();
+}
+
+/* ---------- Playing someone far away ----------
+   The whole game travels inside a link. After your go you send the link (Gmail, Google Chat, WhatsApp…);
+   your friend opens it, takes their go and sends it back. Nothing is stored online. */
+const PIDX=Object.fromEntries(PLAYERS.map((p,i)=>[p.id,i]));
+const newDecks=()=>({easy:{pile:[],last:-1},medium:{pile:[],last:-1},hard:{pile:[],last:-1}});
+function rLog(txt){const g=G();(g.log=g.log||[]).push(txt);}
+const owedTo=i=>G().tasks.filter(x=>x.for===i).length;
+const reservedCount=i=>{const t=G().teams[i];return filled(t)+(t.pending||[]).length+owedTo(i);};
+function remoteNext(){
+  const g=G(),me=g.me,op=1-me,T=g.teams;S.ui.view=null;
+  if(!T[me].setup){g.turn=me;g.step={type:'join'};render();return;}
+  const task=g.tasks.find(x=>x.for===op);
+  if(task){g.turn=op;g.step=task.type==='gk'?{type:'gkForced',task:true}:{type:'oppPick',n:task.n,reason:task.reason,skill:task.skill,task:true};render();return;}
+  if(T[me].pending.length){g.turn=me;g.step={type:'place',pid:T[me].pending[0],gift:true,pending:true};render();return;}
+  if(g.phase==='draft'){
+    if(!g.turnTaken&&reservedCount(me)<11){
+      g.turnTaken=true;g.turn=me;const e=empties(T[me]);
+      if(e.length===1&&T[me].slots[e[0]].line==='GK'){g.tasks.push({type:'gk',for:me});rLog(`${T[me].name} only needs a keeper, so ${T[op].name} picks one.`);return remoteNext();}
+      g.step={type:'draw'};render();return;
+    }
+    if(T.every(t=>filled(t)===11&&!t.pending.length)&&!g.tasks.length){g.phase='swap';rLog('Both teams are full. Swap time!');Snd.whistle(false);}
+  }
+  if(g.phase==='swap'){
+    if(!swapDone(T[me])){g.turn=me;g.step={type:'swapDraw'};render();return;}
+    if(swapDone(T[op])){g.phase='result';g.seq++;recordRemote(g);g.step={type:'result'};g.sent=false;Snd.whistle(true);setTimeout(()=>Snd.cheer(),900);render();return;}
+  }
+  g.seq++;g.turn=op;g.step={type:'send'};g.sent=false;render();
+}
+function recordRemote(g){
+  if(g.counted)return;g.counted=true;S.played=(S.played||0)+1;const a=g.teams[g.me],b=g.teams[1-g.me];
+  S.history=[{t:Date.now(),mode:'remote',mgr:null,a:{club:a.club,score:total(a)},b:{club:b.club,score:total(b)}}].concat(S.history||[]).slice(0,40);
+  const u=TACTICS.findIndex(x=>x.at===S.played);if(u>=0)g.unlocked=u;
+}
+function startRemote(){
+  const su=S.setup;const nm=(su.names[0]||'Player 1').trim();const op=(su.names[1]||'Friend').trim();
+  const me={name:nm,club:(su.clubs[0]||'').trim()||nm+' FC',manager:nm,formation:su.forms[0],cpu:false,age:(su.ages&&su.ages[0])||'junior',setup:true};
+  const them={name:op,club:'',manager:op,formation:'4-4-2',cpu:false,age:'junior',setup:false};
+  const teams=[me,them].map(t=>{t.slots=makeSlots(t.formation);t.pending=[];t.swap={draws:3,need:2};return t;});
+  const id=Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+  S.game={v:2,mode:'remote',id,seq:0,me:0,to:0,phase:'draft',hide:su.hide,turn:0,teams,tasks:[],log:[],turnTaken:false,decks:newDecks(),step:{type:'draw'},note:null};
+  S.remote=S.remote||{};S.remote[id]=S.game;S.ui.view=null;S.screen='game';Snd.whistle(false);remoteNext();
+}
+function encodeGame(g,to){
+  const o={i:g.id,q:g.seq,t:to,p:g.phase,h:g.hide?1:0,l:(g.log||[]).slice(-12),k:g.tasks.map(x=>[x.type==='gk'?1:0,x.for,x.reason||'',x.n||0,x.skill||'']),
+    m:g.teams.map(t=>({n:t.name,c:t.club,f:t.formation,a:t.age||'junior',u:t.setup?1:0,s:t.slots.map(x=>x.pid?PIDX[x.pid]:-1),d:(t.pending||[]).map(id=>PIDX[id]),w:[t.swap.draws,t.swap.need]}))};
+  return btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function decodeGame(str){
+  let b=str.replace(/-/g,'+').replace(/_/g,'/');while(b.length%4)b+='=';
+  const o=JSON.parse(decodeURIComponent(escape(atob(b))));
+  if(!o||!o.i||!Array.isArray(o.m)||o.m.length!==2)throw new Error('bad link');
+  const teams=o.m.map(x=>{const f=FORMATIONS[x.f]?x.f:'4-4-2';const slots=makeSlots(f);(x.s||[]).forEach((pi,k)=>{if(slots[k]&&PLAYERS[pi])slots[k].pid=PLAYERS[pi].id;});
+    const nm=String(x.n||'Player').slice(0,16);
+    return{name:nm,club:String(x.c||'').slice(0,22),manager:nm,formation:f,age:AGES[x.a]?x.a:'junior',setup:!!x.u,cpu:false,slots,
+      pending:(x.d||[]).filter(pi=>PLAYERS[pi]).map(pi=>PLAYERS[pi].id),swap:{draws:Math.max(0,+(x.w||[])[0]||0),need:Math.max(0,+(x.w||[])[1]||0)}};});
+  return{v:2,mode:'remote',id:String(o.i).slice(0,24),seq:+o.q||0,to:o.t===1?1:0,phase:['draft','swap','result'].includes(o.p)?o.p:'draft',hide:!!o.h,
+    tasks:(o.k||[]).map(x=>({type:x[0]?'gk':'gift',for:x[1]===1?1:0,reason:String(x[2]||''),n:+x[3]||0,skill:String(x[4]||'')})),
+    log:(o.l||[]).map(x=>String(x).slice(0,200)).slice(0,12),teams,turn:o.t===1?1:0,note:null};
+}
+function startMyGo(){
+  const g=G();g.turnTaken=false;const got=g.log||[];g.log=[];g.inbox=got;
+  g.note=got.length?`${g.teams[1-g.me].name}’s go: ${got.join(' ')}`:null;
+  if(g.phase==='result'){recordRemote(g);g.step={type:'result'};g.sent=true;render();return;}
+  remoteNext();
+}
+function receiveLink(){
+  const m=/^#g=([A-Za-z0-9_-]+)$/.exec(location.hash||'');if(!m)return false;
+  let d;try{d=decodeGame(m[1]);}catch(e){return false;}
+  try{history.replaceState(null,'',location.pathname+location.search);}catch(e){}
+  S.remote=S.remote||{};const local=S.remote[d.id];
+  S.screen='game';S.ui.view=null;
+  if(local&&local.seq>=d.seq){S.game=local;return true;}
+  const g=d;g.me=local?local.me:null;g.decks=(local&&local.decks)||newDecks();g.sent=false;
+  S.remote[g.id]=g;S.game=g;
+  if(g.me==null){g.step={type:'whoami'};}
+  else if(g.me!==g.to){g.turn=1-g.me;g.step={type:'send'};g.sent=true;}
+  else{startMyGo();return true;}
+  return true;
+}
+const remoteLink=()=>{const g=G();return APP_URL+'#g='+encodeGame(g,1-g.me);};
+function remoteText(){const g=G();const me=g.teams[g.me],op=g.teams[1-g.me];
+  return g.phase==='result'?`Full time in Dream XI Draw! ${me.club} ${total(me)} – ${total(op)} ${op.club||op.name}. Tap to see the result:`:`${op.name}, it’s your go in Dream XI Draw! ${me.name} has played. Tap the link to take your go:`;}
+async function remoteSend(){
+  const g=G();const url=remoteLink(),text=remoteText();
+  if(IS_APP&&navigator.share){try{await navigator.share({title:'Dream XI Draw',text,url});g.sent=true;render();return;}catch(e){if(e&&e.name==='AbortError')return;}}
+  S.ui.modal={type:'rsend',url,text};render();
+}
+function remoteListView(){
+  const list=Object.values(S.remote||{}).sort((a,b)=>(b.seq||0)-(a.seq||0)).slice(0,8);if(!list.length)return '';
+  const status=g=>{if(g.me==null)return 'Open it';const op=g.teams[1-g.me];if(g.phase==='result'){const a=total(g.teams[g.me]),b=total(op);return `Finished: ${a} – ${b}`;}
+    if(g.step&&g.step.type==='send')return g.sent?`Waiting for ${op.name}`:`Send your move to ${op.name}`;return 'Your go';};
+  return `<div class="card"><div class="eyebrow">Games with friends far away</div><div class="games">${list.map(g=>`<button class="game" data-a="ropen" data-v="${esc(g.id)}" style="text-align:left"><span class="res ${g.phase==='result'?'D':'W'}" aria-hidden="true">${g.phase==='result'?'FT':'▶'}</span><span class="sc2">vs ${esc(g.teams[g.me==null?0:1-g.me].name)}</span><span class="dt">${esc(status(g))}</span></button>`).join('')}</div></div>`;
 }
 
 /* ---------- Computer manager ---------- */
@@ -663,7 +761,7 @@ function maybeCpu(){
 /* ---------- Views ---------- */
 function teamBox(i){const g=G();const t=g.teams[i];const act=g.phase!=='result'&&actor()===i;
   const sub=g.phase==='swap'?(swapDone(t)?'Swaps done':`${t.swap.need} swap${t.swap.need===1?'':'s'} to make · ${t.swap.draws} pick${t.swap.draws===1?'':'s'} left`):`${filled(t)}/11 · ${t.formation} · 72-or-less: ${lowCount(t)}/3`;
-  return `<div class="team t${i} ${act?'active':''}"><div class="nm">${esc(t.club)}</div><div class="meta">${t.cpu?'Manager: ':''}${esc(t.manager)}</div><div class="meta">${sub}</div><div class="meta">Rating total <b style="color:var(--chalk)">${total(t)}</b></div></div>`;}
+  return `<div class="team t${i} ${act?'active':''}"><div class="nm">${esc(t.club||t.name)}</div><div class="meta">${t.cpu?'Manager: ':''}${esc(t.manager)}</div><div class="meta">${sub}</div><div class="meta">Rating total <b style="color:var(--chalk)">${total(t)}</b></div></div>`;}
 
 function pitch(i,opts={}){
   const t=G().teams[i];const pts=formPts(t.formation);const jp=S.ui.justPlaced;
@@ -704,6 +802,21 @@ function panel(){
   const note=g.note?`<div class="note">${esc(g.note)}</div>`:'';
   const pickNo=filled(t)+1;const hide=hidden();
   switch(st.type){
+    case 'whoami':{const to=g.teams[g.to],fr=g.teams[1-g.to];
+      return `<div><div class="eyebrow">A game of Dream XI Draw</div><h2>It’s ${esc(to.name)}’s go. Who are you?</h2></div>
+      <div class="btnrow"><button class="btn" data-a="iam" data-v="${g.to}">I’m ${esc(to.name)}</button><button class="btn ghost" data-a="iam" data-v="${1-g.to}">I’m ${esc(fr.name)}</button></div>`;}
+    case 'join':{const J=S.ui.join||(S.ui.join={club:'',age:'junior',form:'4-4-2'});const me=g.teams[g.me],op=g.teams[1-g.me];
+      return `<div><div class="eyebrow">You’ve been challenged!</div><h2>${esc(op.name)} wants to play you</h2></div>
+      <p class="muted" style="margin:0">Grab a ball! You take turns: after each go, you send your move back.</p>
+      <label class="lbl">Your club<input type="text" id="jc" value="${esc(J.club)}" maxlength="22" placeholder="${esc(me.name+' FC')}"></label>
+      <div class="eyebrow">Your age</div><div class="chips">${Object.entries(AGES).map(([a,l])=>`<button class="chip ${J.age===a?'on':''}" data-a="jage" data-v="${a}">${l}</button>`).join('')}</div>
+      <div class="eyebrow">Formation</div><div class="chips">${Object.keys(FORMATIONS).map(f=>`<button class="chip ${J.form===f?'on':''}" data-a="jform" data-v="${f}">${f}</button>`).join('')}</div>${formSVG(J.form)}
+      <div class="btnrow"><button class="btn" data-a="jstart">Start my go</button></div>`;}
+    case 'send':{const op=g.teams[1-g.me];const lines=(g.log||[]).slice(-6);
+      return `<div><div class="eyebrow">${g.sent?'Move sent':'Your go is done'}</div><h2>${g.sent?`Waiting for ${esc(op.name)}`:`Send your move to ${esc(op.name)}`}</h2></div>
+      ${lines.length&&!g.sent?`<div class="note">${lines.map(esc).join('<br>')}</div>`:''}
+      <p class="muted" style="margin:0">${g.sent?`It’s ${esc(op.name)}’s go. You can look at both teams. When ${esc(op.name)} sends a move back, tap the link and it’s your go again.`:`Send it any way you like: Gmail, Google Chat, Messages or WhatsApp.`}</p>
+      <div class="btnrow"><button class="btn ${g.sent?'ghost':''}" data-a="rsend">${g.sent?'Send it again':'Send my move'}</button></div>`;}
     case 'draw':
       return `${note}<div><div class="eyebrow">${esc(t.club)} · pick ${pickNo} of 11</div><h2>${who(i)}'s turn</h2></div>${cpuMe?'':passNote(i)}
       ${cpuMe?`<div class="drawzone"><div class="ball" id="ball">?</div>${boxGrid()}</div>${thinking(`${esc(t.name)} is reaching into the box…`)}`:pickZone('?')}`;
@@ -766,7 +879,7 @@ function gameView(){
   const g=G();
   if(g.phase==='result')return resultView();
   const st=g.step;
-  let view=S.ui.view!=null?S.ui.view:g.turn;
+  let view=S.ui.view!=null?S.ui.view:(g.mode==='remote'&&g.me!=null&&['send','join','whoami'].includes(st.type)?g.me:g.turn);
   let opts={};
   const cpuActing=isCpu(g.turn);
   if(view===g.turn){
@@ -778,7 +891,7 @@ function gameView(){
   }
   return `<div class="score">${teamBox(0)}<div class="vs">VS</div>${teamBox(1)}</div>
   <div class="board"><div class="panel" id="panel">${panel()}</div>
-  <div class="pitchwrap"><div class="tabs">${[0,1].map(k=>`<button class="chip t${k} ${view===k?'on':''}" data-a="view" data-v="${k}">${esc(g.teams[k].club)} · ${g.teams[k].formation}</button>`).join('')}</div>${pitch(view,opts)}</div></div>`;
+  <div class="pitchwrap"><div class="tabs">${[0,1].map(k=>`<button class="chip t${k} ${view===k?'on':''}" data-a="view" data-v="${k}">${esc(g.teams[k].club||g.teams[k].name)} · ${g.teams[k].formation}</button>`).join('')}</div>${pitch(view,opts)}</div></div>`;
 }
 
 function resultView(){
@@ -789,7 +902,7 @@ function resultView(){
   <div class="totals"><span style="color:var(--yellow)">${esc(a.club)} ${ta}</span><span class="muted">–</span><span style="color:var(--sky)">${esc(b.club)} ${tb}</span></div>
   <p class="muted">Out-of-position points lost: ${esc(a.club)} ${pens(a)} · ${esc(b.club)} ${pens(b)}</p>
   <div class="btnrow" style="justify-content:center"><button class="btn" data-a="again">Play again</button><button class="btn ghost" data-a="home">Home</button></div>
-  <div class="sharerow" style="margin-top:14px">${[0,1].filter(k=>!g.teams[k].cpu).map(k=>`<button class="btn wa small" data-a="shareteam" data-v="${k}">Share ${g.mode==='2p'?esc(g.teams[k].club):'my team'}</button>`).join('')}<button class="btn ghost small" data-a="sharegame">Share the game</button></div></div>
+  <div class="sharerow" style="margin-top:14px">${g.mode==='remote'?`<button class="btn small" data-a="rsend">${g.sent?'Send the result again':'Send the result to '+esc(g.teams[1-g.me].name)}</button>`:''}${[0,1].filter(k=>!g.teams[k].cpu&&(g.mode!=='remote'||k===g.me)).map(k=>`<button class="btn wa small" data-a="shareteam" data-v="${k}">Share ${g.mode==='2p'?esc(g.teams[k].club):'my team'}</button>`).join('')}<button class="btn ghost small" data-a="sharegame">Share the game</button></div></div>
   <div class="card feedback"><p>Enjoying the game? Got an idea for something new? Tell Luka!</p><a class="btn small" href="${FEEDBACK_URL}" target="_blank" rel="noopener noreferrer">Send feedback</a></div>
   ${g.unlocked!=null?`<div class="card" style="border:2px solid var(--good)"><span class="lvl easy">New tactic unlocked · game ${S.played}</span><h2>${esc(TACTICS[g.unlocked].h)}</h2><p style="margin:0;font-size:1.1rem">${esc(TACTICS[g.unlocked].p)}</p><p class="muted" style="margin:0">A tactic by Luka. See them all under Tactics on the home screen.</p></div>`:''}
   <div class="two">${[0,1].map(k=>`<div class="pitchwrap"><h3 style="font-size:1.6rem;text-transform:uppercase;color:${k?'var(--sky)':'var(--yellow)'}">${esc(g.teams[k].club)} · ${g.teams[k].formation}</h3>${pitch(k)}</div>`).join('')}</div></div>`;
@@ -804,13 +917,14 @@ function homeView(){
   <div class="shirtfan">${shirt('messi')}${shirt('pele')}${shirt('cronaldo')}</div></div>
   <div class="menu">${cont?'<button class="btn" data-a="continue">Continue game</button>':''}
   <button class="btn ${cont?'ghost':''}" data-a="new" data-v="cpu">Play a manager</button>
-  <button class="btn ghost" data-a="new" data-v="2p">Play a friend</button>
+  <button class="btn ghost" data-a="new" data-v="2p">Play a friend here</button>
+  <button class="btn ghost" data-a="new" data-v="remote">Play someone far away</button>
   <button class="btn ghost" data-a="tut">How to play</button>
   <button class="btn ghost" data-a="ratings">Ratings</button>
   <button class="btn ghost" data-a="tactics">Tactics ${TACTICS.filter(t=>S.played>=t.at).length}/${TACTICS.length}</button>
   ${installBtn()}<button class="btn wa" data-a="sharegame">Share the game</button></div>
   <div class="homelinks"><a class="link" href="${FEEDBACK_URL}" target="_blank" rel="noopener noreferrer">Send Luka feedback</a><button class="link" data-a="rules">All the rules</button></div>
-  ${historyView()}</div>`;
+  ${remoteListView()}${historyView()}</div>`;
 }
 function historyView(){
   const h=S.history||[];if(!h.length)return '';
@@ -851,7 +965,7 @@ function mgrHow(m){
   <li><b>Formation:</b> ${m.form}.</li></ul></div>`;
 }
 function setupView(){
-  const su=S.setup;const cpu=su.mode==='cpu';
+  const su=S.setup;const cpu=su.mode==='cpu';const remote=su.mode==='remote';
   const playerCard=k=>`<div class="card"><div class="eyebrow">Player ${k+1}</div>
     <label class="lbl">Your name<input type="text" id="n${k}" value="${esc(su.names[k])}" maxlength="16"></label>
     <label class="lbl">Your club<input type="text" id="c${k}" value="${esc(su.clubs[k])}" maxlength="22" placeholder="${esc((su.names[k]||'My')+' FC')}"></label>
@@ -863,9 +977,13 @@ function setupView(){
   const mgrCard=`<div class="card"><div class="eyebrow">Choose your opponent</div><h2>Pick a manager</h2>
     <div class="mgrs">${MANAGERS.map(m=>`<button class="mgr ${su.mgr===m.id?'on':''}" data-a="mgr" data-v="${m.id}"><span class="lvl ${m.diff}">${m.diff}</span><span class="mn">${esc(m.name)}</span><span class="mc">${esc(m.club)} · ${m.form}</span></button>`).join('')}</div>
     ${mgrHow(MM[su.mgr])}</div>`;
+  const remoteCard=`<div class="card"><div class="eyebrow">Your opponent</div><h2>Who are you playing?</h2>
+    <label class="lbl">Their name<input type="text" id="n1" value="${esc(su.names[1])}" maxlength="16"></label>
+    <ol class="steps" style="font-size:1.05rem"><li>You take your go first.</li><li>Then send your move to them by Gmail, Google Chat, Messages or WhatsApp.</li><li>They tap the link, take their go and send it back.</li></ol>
+    <p class="muted" style="margin:0">They choose their own club and formation when they open your first move. Missed a skill? They pick your player on their go.</p></div>`;
   return `<div class="topbar"><button class="link" data-a="home">← Home</button><div class="right">${soundBtn()}</div></div>
-  <h1 style="font-size:clamp(2.4rem,6vw,3.6rem);text-transform:uppercase">${cpu?'You vs a manager':'Two-player game'}</h1>
-  <div class="setup">${playerCard(0)}${cpu?mgrCard:playerCard(1)}</div>
+  <h1 style="font-size:clamp(2.4rem,6vw,3.6rem);text-transform:uppercase">${cpu?'You vs a manager':remote?'Play someone far away':'Two-player game'}</h1>
+  <div class="setup">${playerCard(0)}${cpu?mgrCard:remote?remoteCard:playerCard(1)}</div>
   <div class="card" style="margin-top:18px"><button class="toggle ${su.hide?'on':''}" data-a="hide"><span class="sw"></span><span>Hide ratings when picking<br><span class="muted" style="font-weight:400">You have to know who’s better. Ratings show once a player signs.</span></span></button></div>
   <div class="btnrow" style="margin-top:20px"><button class="btn" data-a="start">Kick off</button></div>`;
 }
@@ -1003,6 +1121,10 @@ function modalView(){
     <p style="margin:0">Send friends and family the link so they can play too.</p>
     <div class="btnrow"><a class="btn wa small" href="${waLink(m.text)}" target="_blank" rel="noopener noreferrer">Send in WhatsApp</a><button class="btn ghost small" data-a="copylink">Copy link</button></div>
     <p class="muted" style="margin:0;word-break:break-all" id="linktext">${esc(APP_URL)}</p>`;
+  if(m.type==='rsend')body=`<div class="eyebrow">Send your move</div><h2>Send it to your friend</h2>
+    <p style="margin:0">Pick how to send it. Your friend taps the link to take their go.</p>
+    <div class="btnrow"><a class="btn small" data-a="rsent" href="mailto:?subject=${encodeURIComponent('Your go in Dream XI Draw')}&amp;body=${encodeURIComponent(m.text+'\n\n'+m.url)}">Email it</a><a class="btn wa small" data-a="rsent" href="${waLink(m.text+' '+m.url)}" target="_blank" rel="noopener noreferrer">WhatsApp</a><button class="btn ghost small" data-a="rcopy">Copy link</button></div>
+    <p class="muted" style="margin:0;word-break:break-all;font-size:.85rem" id="rlinktext">${esc(m.url)}</p>`;
   if(m.type==='video')body=`<div class="eyebrow">How to do it</div><h2>${esc(m.t)}</h2>
     <div class="vidbox"><iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(m.v)}?rel=0&amp;modestbranding=1&amp;playsinline=1" title="${esc(m.t)} tutorial video" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe></div>
     <p class="muted" style="margin:0">Video not playing? <a class="link" href="${vidURL(m.v)}" target="_blank" rel="noopener noreferrer">Watch it on YouTube</a></p>`;
@@ -1034,7 +1156,7 @@ function render(){
   save();maybeCpu();
 }
 function stopTimers(){clearTimeout(cpuTimer);cpuTimer=null;clearInterval(drawTimer);clearTimeout(recapTimer);recapTimer=null;}
-function humanCan(){const a=actor();return a!==null&&!isCpu(a);}
+function humanCan(){const a=actor();if(a===null||isCpu(a))return false;const g=G();return g.mode!=='remote'||a===g.me;}
 
 document.addEventListener('click',e=>{
   const el=e.target.closest('[data-a]');if(!el||el.disabled)return;
@@ -1054,8 +1176,16 @@ document.addEventListener('click',e=>{
     case 'mgr':S.setup.mgr=v;render();break;
     case 'age':S.setup.ages=S.setup.ages||['junior','junior'];S.setup.ages[+el.dataset.k]=v;render();break;
     case 'hide':S.setup.hide=!S.setup.hide;render();break;
-    case 'start':startGame();break;
-    case 'again':S.screen='setup';render();break;
+    case 'start':if(S.setup.mode==='remote')startRemote();else startGame();break;
+    case 'again':if(g&&g.mode==='remote'){S.setup.mode='remote';}S.screen='setup';render();break;
+    case 'ropen':if(S.remote&&S.remote[v]){S.game=S.remote[v];S.screen='game';S.ui.view=null;render();}break;
+    case 'iam':{g.me=+v;if(g.me===g.to)startMyGo();else{g.turn=1-g.me;g.step={type:'send'};g.sent=true;render();}break;}
+    case 'jage':(S.ui.join=S.ui.join||{}).age=v;render();break;
+    case 'jform':(S.ui.join=S.ui.join||{}).form=v;render();break;
+    case 'jstart':{const J=S.ui.join||{};const me=g.teams[g.me];me.club=(J.club||'').trim()||me.name+' FC';me.age=J.age||'junior';me.formation=J.form||'4-4-2';me.slots=makeSlots(me.formation);me.setup=true;S.ui.join=null;rLog(`${me.name} joined with ${me.club} (${me.formation}).`);Snd.whistle(false);remoteNext();break;}
+    case 'rsend':remoteSend();break;
+    case 'rsent':setTimeout(()=>{const G2=G();if(G2){G2.sent=true;S.ui.modal=null;render();}},300);break;
+    case 'rcopy':{const u=S.ui.modal&&S.ui.modal.url;const done=()=>{el.textContent='Copied!';const G2=G();if(G2)G2.sent=true;};try{navigator.clipboard.writeText(u).then(done,()=>{const r=document.createRange();const n=document.getElementById('rlinktext');if(n){r.selectNodeContents(n);getSelection().removeAllRanges();getSelection().addRange(r);}});}catch(e){}break;}
     case 'resetratings':S.ratings={};render();break;
     case 'view':S.ui.view=+v;render();break;
     case 'filter':S.ui.filter=v;render();break;
@@ -1085,6 +1215,7 @@ document.addEventListener('click',e=>{
   }
 });
 document.addEventListener('input',e=>{
+  if(e.target.id==='jc'){(S.ui.join=S.ui.join||{}).club=e.target.value;return;}
   const m=/^([nc])([01])$/.exec(e.target.id||'');if(!m)return;
   (m[1]==='n'?S.setup.names:S.setup.clubs)[+m[2]]=e.target.value;save();
 });
@@ -1100,10 +1231,12 @@ function start(data){
   if(S.game&&S.game.v!==2)S.game=null;
   if(S.game&&S.game.step&&S.game.step.type==='drawing')S.game.step={type:S.game.step.swap?'swapDraw':'draw'};
   if(S.screen!=='game'&&S.screen!=='setup')S.screen='home';
-  S.ui=Object.assign({filter:'ALL',sort:'low',view:null,justPlaced:null,tut:null},S.ui||{});S.ui.modal=null;S.name='Dream XI Draw';S.ratings={};
+  S.remote=S.remote||{};S.ui=Object.assign({filter:'ALL',sort:'low',view:null,justPlaced:null,tut:null},S.ui||{});S.ui.modal=null;S.name='Dream XI Draw';S.ratings={};
+  receiveLink();
   if(!S.seenTut)S.ui.tut=0;
   render();
 }
+addEventListener('hashchange',()=>{if(receiveLink())render();});
 try{window.claude?.hot?.snapshot?.(()=>({S:JSON.parse(JSON.stringify(S))}));}catch(e){}
 window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
 </script>
